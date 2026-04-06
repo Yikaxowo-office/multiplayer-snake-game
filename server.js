@@ -87,7 +87,8 @@ io.on('connection', (socket) => {
     });
 });
 
-// 啟動伺服器
-http.listen(3000, () => {
-    console.log('伺服器運行中：http://localhost:3000');
+const PORT = process.env.PORT || 3000; 
+
+http.listen(PORT, () => {
+    console.log(`伺服器正在運行，埠號：${PORT}`);
 });
