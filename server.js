@@ -7,15 +7,36 @@ const path = require('path');
 app.use(express.static('public'));
 
 let players = {};
-let food = { x: 300, y: 200 };
+let foods = {}; // 改用物件來儲存多個食物
 let baseSpeed = 3;
 
-// 修改 server.js 中的 spawnFood
-function spawnFood() {
-    // 假設世界大小是 3000 x 3000
-    food.x = Math.random() * 2900 + 50;
-    food.y = Math.random() * 2900 + 50;
-    io.emit('foodUpdate', food);
+const WORLD_RADIUS = 1500;
+const WORLD_CENTER = { x: 1500, y: 1500 };
+const MAX_FOODS = 150; // 地圖上同時存在的食物數量
+let foodIdCounter = 0;
+
+// 生成單個食物的邏輯 (給予不同大小與分數)
+function spawnSingleFood() {
+    let angle = Math.random() * Math.PI * 2;
+    let radius = Math.random() * (WORLD_RADIUS - 20); 
+    let x = WORLD_CENTER.x + radius * Math.cos(angle);
+    let y = WORLD_CENTER.y + radius * Math.sin(angle);
+    
+    let type = Math.random();
+    let size, pts, color;
+    if (type > 0.9) { size = 15; pts = 30; color = "#f1c40f"; } // 10% 金色大食物
+    else if (type > 0.6) { size = 10; pts = 15; color = "#e67e22"; } // 30% 橘色中食物
+    else { size = 6; pts = 5; color = "#e74c3c"; } // 60% 紅色小食物
+
+    let id = foodIdCounter++;
+    let newFood = { id, x, y, size, pts, color };
+    foods[id] = newFood;
+    return newFood;
+}
+
+// 初始化地圖上的食物
+for(let i=0; i<MAX_FOODS; i++) {
+    spawnSingleFood();
 }
 
 io.on('connection', (socket) => {
@@ -27,36 +48,40 @@ io.on('connection', (socket) => {
         speed: baseSpeed
     };
 
-    socket.emit('foodUpdate', food);
+    // 玩家一連線，就把所有食物傳給他
+    socket.emit('initFoods', foods);
 
     socket.on('updatePos', (data) => {
-        //防呆檢查
-        if (!players[socket.id]) return;
+        if (!players[socket.id] || !data.snake || data.snake.length === 0) return;
         const player = players[socket.id];
         player.snake = data.snake;
 
-        // 接收來自客戶端的「是否正在加速」狀態
         if (data.isBoosting && player.snake.length > 5) {
-            // 加速時，伺服器記錄該玩家當前速度加成
             player.currentSpeed = player.speed * 1.5;
         } else {
             player.currentSpeed = player.speed;
         }
         
         let head = player.snake[0];
-        
-        // 再次確保 head 存在才計算，避免讀取 head.x 報錯
         if (!head) return;
 
-        
-        // 1. 食物同步判定
-        let distToFood = Math.sqrt(Math.pow(head.x - food.x, 2) + Math.pow(head.y - food.y, 2));
-        
-        if (distToFood < 20) { // 稍微加大判定範圍增加手感
-            player.score += 10;
-            player.speed = baseSpeed + (player.score / 50) * 0.5;
-            spawnFood();
-            io.emit('scoreUpdate', { id: socket.id, score: player.score, speed: player.speed });
+        // 1. 食物同步判定 (檢查所有食物)
+        for (let id in foods) {
+            let f = foods[id];
+            let distToFood = Math.sqrt(Math.pow(head.x - f.x, 2) + Math.pow(head.y - f.y, 2));
+            
+            if (distToFood < (15 + f.size)) { // 根據食物大小調整吃食範圍
+                player.score += f.pts;
+                player.speed = baseSpeed + (player.score / 50) * 0.5;
+                
+                delete foods[id];
+                let newFood = spawnSingleFood(); // 補一顆新食物
+                
+                // 廣播「哪顆被吃了」以及「新長出哪顆」，節省流量
+                io.emit('foodEaten', { eatenId: id, newFood: newFood });
+                io.emit('scoreUpdate', { id: socket.id, score: player.score, speed: player.speed });
+                break; // 一次最多吃一顆
+            }
         }
 
         // 2. 碰撞判定 (撞到別人)
@@ -87,7 +112,8 @@ io.on('connection', (socket) => {
     });
 });
 
-// 啟動伺服器
-http.listen(3000, () => {
-    console.log('伺服器運行中：http://localhost:3000');
+const PORT = process.env.PORT || 3000; 
+
+http.listen(PORT, () => {
+    console.log(`伺服器正在運行，埠號：${PORT}`);
 });
