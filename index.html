@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>多人連線貪吃蛇</title>
+    <style>
+        body { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #2c3e50; font-family: sans-serif; overflow: hidden; }
+        canvas { background: #1a252f; cursor: crosshair; }
+        
+        #scoreBoard { position: absolute; top: 20px; right: 20px; color: #ecf0f1; font-size: 20px; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); z-index: 5; pointer-events: none; }
+        #instructions { position: absolute; bottom: 20px; color: #ecf0f1; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 5px; pointer-events: none; }
+        
+        #ui { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0, 0, 0, 0.7); 
+            display: flex; flex-direction: column; justify-content: center; align-items: center; 
+            color: white; text-shadow: 2px 2px 5px rgba(0,0,0,0.8); z-index: 10; cursor: pointer;
+        }
+        #ui.hidden { display: none; }
+        #msg { font-size: 48px; margin-bottom: 10px; }
+        #lastScore { font-size: 24px; color: #f1c40f; margin-bottom: 30px; }
+        .blink { animation: blinker 1.5s linear infinite; font-size: 18px; color: #bdc3c7; }
+        @keyframes blinker { 50% { opacity: 0; } }
+    </style>
+</head>
+<body>
+
+    <div id="scoreBoard">分數: 0</div>
+    <div id="instructions">移動滑鼠轉向 | 按住滑鼠左鍵加速 (會消耗長度)</div>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+    <div id="ui">
+        <h1 id="msg">多人連線貪吃蛇</h1>
+        <h2 id="lastScore" class="hidden">上一局分數: 0</h2>
+        <p class="blink">點擊畫面任意處開始戰鬥</p>
+    </div>
+
+<script src="/socket.io/socket.io.js"></script>
+
+<script>
+const socket = io();
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const ui = document.getElementById("ui");
+const msg = document.getElementById("msg");
+const lastScoreDisplay = document.getElementById("lastScore");
+const scoreBoard = document.getElementById("scoreBoard");
+
+const WORLD_RADIUS = 3000;
+const WORLD_CENTER = { x: 3000, y: 3000 };
+
+let snake = [];
+let foods = {}; 
+let score = 0;
+let snakeSpeed = 3; // 固定速度
+let myWidth = 15; // 自己的粗度
+let pendingGrowth = 0; // 吃到食物後準備增加的長度
+
+let gameState = "MENU";
+let mouse = { x: 400, y: 300 };
+let isBoosting = false;
+
+let targetEnemies = {};
+let enemies = {};
+let enemyWidths = {}; // 紀錄敵人的粗度
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// --- 監聽事件 ---
+socket.on('initFoods', (serverFoods) => foods = serverFoods);
+socket.on('foodEaten', (data) => {
+    delete foods[data.eatenId]; 
+    foods[data.newFood.id] = data.newFood; 
+});
+// 接收別人死掉噴出的食物
+socket.on('foodsDropped', (droppedFoods) => {
+    Object.assign(foods, droppedFoods); // 將新食物合併到畫面上
+});
+
+socket.on('enemyUpdate', (data) => {
+    targetEnemies[data.id] = data.snake;
+    enemyWidths[data.id] = data.width; // 獲取別人現在的粗度
+});
+
+socket.on('die', () => gameOver());
+
+socket.on('scoreUpdate', (data) => {
+    if (data.id === socket.id) {
+        let scoreDiff = data.score - score;
+        if (scoreDiff > 0) pendingGrowth += Math.floor(scoreDiff / 3); // 每得3分長1節
+        
+        score = data.score;
+        myWidth = data.width; // 更新粗度
+        scoreBoard.innerText = `分數: ${score} | 粗度: ${Math.floor(myWidth)}`;
+    }
+});
+
+socket.on('playerDisconnected', (id) => {
+    delete targetEnemies[id];
+    delete enemies[id];
+    delete enemyWidths[id];
+});
+
+// --- 控制邏輯 ---
+ui.addEventListener("mousedown", () => {
+    if (gameState !== "PLAYING") init();
+});
+canvas.addEventListener("mousedown", () => isBoosting = true);
+canvas.addEventListener("mouseup", () => isBoosting = false);
+canvas.addEventListener("mousemove", (e) => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+});
+
+// 初始化/重生邏輯
+function init() {
+    snake = [];
+    const startX = WORLD_CENTER.x + (Math.random() * 400 - 200);
+    const startY = WORLD_CENTER.y + (Math.random() * 400 - 200);
+    for(let i=0; i<20; i++) snake.push({ x: startX, y: startY }); // 初始化長度為20
+    
+    score = 0;
+    myWidth = 15; // 初始化寬度
+    pendingGrowth = 0; // 重置增長
+    scoreBoard.innerText = `分數: ${score} | 粗度: 15`;
+    gameState = "PLAYING";
+    ui.classList.add("hidden"); 
+}
+
+function update() {
+    if (gameState !== "PLAYING") return;
+
+    let head = { ...snake[0] };
+    let dx = mouse.x - (canvas.width / 2);
+    let dy = mouse.y - (canvas.height / 2);
+    let distance = Math.sqrt(dx * dx + dy * dy);
+
+    let currentMoveSpeed = (isBoosting && snake.length > 20) ? snakeSpeed * 1.5 : snakeSpeed;
+
+    if (distance > 5) {
+        head.x += (dx / distance) * currentMoveSpeed;
+        head.y += (dy / distance) * currentMoveSpeed;
+    }
+
+    snake.unshift(head);
+    
+    // 長度增長控制
+    if (pendingGrowth > 0) {
+        pendingGrowth--; // 消耗點數，不移除尾巴 (也就是變長了)
+    } else {
+        snake.pop(); // 沒吃東西時維持長度
+        
+        // 加速會消耗長度
+        if (isBoosting && snake.length > 20) {
+            snake.pop(); 
+        }
+    }
+
+    socket.emit('updatePos', { snake: snake, isBoosting: isBoosting });
+}
+
+function gameOver() {
+    gameState = "GAMEOVER";
+    ui.classList.remove("hidden"); 
+    msg.innerText = "你撞毀了！";
+    lastScoreDisplay.innerText = `上一局分數: ${score}`;
+    lastScoreDisplay.classList.remove("hidden");
+    snake = [];
+}
+
+// --- 繪製 ---
+function drawMinimap() {
+    const size = 150; 
+    const padding = 20;
+    const mapX = canvas.width - size - padding;
+    const mapY = canvas.height - size - padding;
+    
+    ctx.beginPath();
+    ctx.arc(mapX + size/2, mapY + size/2, size/2, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+    ctx.stroke();
+
+    const scale = size / (WORLD_RADIUS * 2);
+
+    ctx.fillStyle = "#2ecc71";
+    if(snake[0]) ctx.fillRect(mapX + snake[0].x * scale, mapY + snake[0].y * scale, 4, 4);
+    
+    ctx.fillStyle = "gray";
+    for(let id in targetEnemies) {
+        let e = targetEnemies[id];
+        if(e && e[0]) ctx.fillRect(mapX + e[0].x * scale, mapY + e[0].y * scale, 4, 4);
+    }
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (gameState === "PLAYING" || gameState === "GAMEOVER") {
+        const head = snake[0] || WORLD_CENTER;
+        ctx.save();
+        ctx.translate(canvas.width / 2 - head.x, canvas.height / 2 - head.y);
+
+        ctx.beginPath();
+        ctx.arc(WORLD_CENTER.x, WORLD_CENTER.y, WORLD_RADIUS, 0, Math.PI * 2);
+        ctx.strokeStyle = "#e74c3c"; 
+        ctx.lineWidth = 15;
+        ctx.stroke();
+        
+        ctx.clip(); 
+
+        ctx.strokeStyle = "rgba(223, 230, 233, 0.1)"; 
+        ctx.lineWidth = 1;
+        for(let i=0; i<=WORLD_RADIUS*2; i+=150) {
+            ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, WORLD_RADIUS*2); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(WORLD_RADIUS*2, i); ctx.stroke();
+        }
+
+        // 畫食物
+        for(let id in foods) {
+            let f = foods[id];
+            ctx.fillStyle = f.color;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = f.color;
+            ctx.beginPath();
+            ctx.arc(f.x, f.y, f.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.shadowBlur = 0; 
+
+        // 畫敵人的蛇 (套用他們各自的寬度)
+        for (let id in targetEnemies) {
+            if (!enemies[id]) enemies[id] = JSON.parse(JSON.stringify(targetEnemies[id]));
+            for (let i = 0; i < targetEnemies[id].length; i++) {
+                if (!enemies[id][i]) continue;
+                enemies[id][i].x += (targetEnemies[id][i].x - enemies[id][i].x) * 0.15;
+                enemies[id][i].y += (targetEnemies[id][i].y - enemies[id][i].y) * 0.15;
+            }
+            ctx.strokeStyle = "#95a5a6"; 
+            ctx.lineWidth = enemyWidths[id] || 15; // 讀取敵人的粗度
+            ctx.lineCap = "round"; ctx.lineJoin = "round";
+            ctx.beginPath();
+            ctx.moveTo(enemies[id][0].x, enemies[id][0].y);
+            enemies[id].forEach(seg => ctx.lineTo(seg.x, seg.y)); ctx.stroke();
+        }
+
+        // 畫自己的蛇 (套用自己的寬度)
+        ctx.strokeStyle = (isBoosting && snake.length > 20) ? "#3498db" : "#2ecc71";
+        ctx.lineWidth = myWidth; // 套用動態變粗
+        ctx.lineCap = "round"; ctx.lineJoin = "round";
+        ctx.beginPath();
+        if(snake[0]) {
+            ctx.moveTo(snake[0].x, snake[0].y);
+            snake.forEach(seg => ctx.lineTo(seg.x, seg.y));
+            ctx.stroke();
+        }
+
+        ctx.restore();
+        drawMinimap();
+    }
+
+    requestAnimationFrame(() => { update(); draw(); });
+}
+draw();
+</script>
+</body>
+</html>

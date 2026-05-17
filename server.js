@@ -7,15 +7,14 @@ const path = require('path');
 app.use(express.static('public'));
 
 let players = {};
-let foods = {}; // 改用物件來儲存多個食物
-let baseSpeed = 3;
+let foods = {}; 
+const baseSpeed = 3;
 
-const WORLD_RADIUS = 1500;
-const WORLD_CENTER = { x: 1500, y: 1500 };
-const MAX_FOODS = 150; // 地圖上同時存在的食物數量
+const WORLD_RADIUS = 3000;
+const WORLD_CENTER = { x: 3000, y: 3000 };
+const MAX_FOODS = 150; 
 let foodIdCounter = 0;
 
-// 生成單個食物的邏輯 (給予不同大小與分數)
 function spawnSingleFood() {
     let angle = Math.random() * Math.PI * 2;
     let radius = Math.random() * (WORLD_RADIUS - 20); 
@@ -24,9 +23,9 @@ function spawnSingleFood() {
     
     let type = Math.random();
     let size, pts, color;
-    if (type > 0.9) { size = 15; pts = 30; color = "#f1c40f"; } // 10% 金色大食物
-    else if (type > 0.6) { size = 10; pts = 15; color = "#e67e22"; } // 30% 橘色中食物
-    else { size = 6; pts = 5; color = "#e74c3c"; } // 60% 紅色小食物
+    if (type > 0.9) { size = 15; pts = 30; color = "#f1c40f"; } 
+    else if (type > 0.6) { size = 10; pts = 15; color = "#e67e22"; } 
+    else { size = 6; pts = 5; color = "#e74c3c"; } 
 
     let id = foodIdCounter++;
     let newFood = { id, x, y, size, pts, color };
@@ -34,9 +33,37 @@ function spawnSingleFood() {
     return newFood;
 }
 
-// 初始化地圖上的食物
 for(let i=0; i<MAX_FOODS; i++) {
     spawnSingleFood();
+}
+
+// 處理玩家死亡與化成食物的邏輯
+function handlePlayerDeath(playerId) {
+    const player = players[playerId];
+    if (!player || !player.snake || player.snake.length === 0) return;
+
+    let droppedFoods = {};
+    // 每隔 3 節身體掉落一顆食物 (避免食物太多造成卡頓)
+    for (let i = 0; i < player.snake.length; i += 3) {
+        let seg = player.snake[i];
+        let size = Math.min(8 + (player.score / 50), 18); // 依據生前分數決定掉落食物大小
+        let pts = Math.floor(size * 1.5);
+        let colors = ["#f1c40f", "#e67e22", "#e74c3c", "#9b59b6", "#3498db"];
+        let color = colors[Math.floor(Math.random() * colors.length)];
+        
+        let fid = foodIdCounter++;
+        let newFood = { id: fid, x: seg.x, y: seg.y, size, pts, color };
+        foods[fid] = newFood;
+        droppedFoods[fid] = newFood;
+    }
+    
+    // 廣播掉落的食物給所有人
+    io.emit('foodsDropped', droppedFoods);
+    
+    // 初始化該玩家在伺服器上的數據
+    player.snake = [];
+    player.score = 0;
+    player.width = 15;
 }
 
 io.on('connection', (socket) => {
@@ -45,10 +72,10 @@ io.on('connection', (socket) => {
     players[socket.id] = {
         snake: [],
         score: 0,
-        speed: baseSpeed
+        speed: baseSpeed,
+        width: 15 // 預設粗度
     };
 
-    // 玩家一連線，就把所有食物傳給他
     socket.emit('initFoods', foods);
 
     socket.on('updatePos', (data) => {
@@ -56,7 +83,8 @@ io.on('connection', (socket) => {
         const player = players[socket.id];
         player.snake = data.snake;
 
-        if (data.isBoosting && player.snake.length > 5) {
+        // 速度固定，只有加速時會變快
+        if (data.isBoosting && player.snake.length > 10) {
             player.currentSpeed = player.speed * 1.5;
         } else {
             player.currentSpeed = player.speed;
@@ -65,47 +93,59 @@ io.on('connection', (socket) => {
         let head = player.snake[0];
         if (!head) return;
 
-        // 1. 食物同步判定 (檢查所有食物)
+        // 1. 食物判定
         for (let id in foods) {
             let f = foods[id];
             let distToFood = Math.sqrt(Math.pow(head.x - f.x, 2) + Math.pow(head.y - f.y, 2));
             
-            if (distToFood < (15 + f.size)) { // 根據食物大小調整吃食範圍
+            if (distToFood < (player.width / 2 + f.size)) { 
                 player.score += f.pts;
-                player.speed = baseSpeed + (player.score / 50) * 0.5;
+                player.width = 15 + (player.score / 30); // 吃食物變粗 (不變快)
                 
                 delete foods[id];
-                let newFood = spawnSingleFood(); // 補一顆新食物
+                let newFood = spawnSingleFood(); 
                 
-                // 廣播「哪顆被吃了」以及「新長出哪顆」，節省流量
                 io.emit('foodEaten', { eatenId: id, newFood: newFood });
-                io.emit('scoreUpdate', { id: socket.id, score: player.score, speed: player.speed });
-                break; // 一次最多吃一顆
+                io.emit('scoreUpdate', { id: socket.id, score: player.score, width: player.width });
+                break; 
             }
         }
 
-        // 2. 碰撞判定 (撞到別人)
+        // 2. 邊界死亡判定 (移到伺服器處理較安全)
+        let distToCenter = Math.sqrt(Math.pow(head.x - WORLD_CENTER.x, 2) + Math.pow(head.y - WORLD_CENTER.y, 2));
+        if (distToCenter > WORLD_RADIUS) {
+            handlePlayerDeath(socket.id);
+            socket.emit('die');
+            return;
+        }
+
+        // 3. 碰撞別人死亡判定
         for (let otherId in players) {
             if (otherId === socket.id) continue;
-            let otherSnake = players[otherId].snake;
-            if (!otherSnake || otherSnake.length === 0) continue;
+            let otherPlayer = players[otherId];
+            if (!otherPlayer.snake || otherPlayer.snake.length === 0) continue;
 
-            for (let segment of otherSnake) {
+            for (let segment of otherPlayer.snake) {
                 let distToEnemy = Math.sqrt(Math.pow(head.x - segment.x, 2) + Math.pow(head.y - segment.y, 2));
-                if (distToEnemy < 10) {
+                // 根據敵人的粗度來判定碰撞範圍
+                if (distToEnemy < (otherPlayer.width / 2 + 2)) {
+                    handlePlayerDeath(socket.id); // 化成食物
                     socket.emit('die');
-                    break; 
+                    return; 
                 }
             }
         }
 
+        // 把自己的座標與粗度傳給別人
         socket.broadcast.emit('enemyUpdate', {
             id: socket.id,
-            snake: player.snake
+            snake: player.snake,
+            width: player.width
         });
     });
 
     socket.on('disconnect', () => {
+        handlePlayerDeath(socket.id); // 斷線也化成食物
         delete players[socket.id];
         io.emit('playerDisconnected', socket.id);
         console.log('玩家離開:', socket.id);
@@ -113,11 +153,6 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000; 
-
 http.listen(PORT, () => {
-    console.log(`伺服器正在運行，埠號：${PORT}`);
-<<<<<<< HEAD
+    console.log(`伺服器運行中，埠號：${PORT}`);
 });
-=======
-});
->>>>>>> 62b3e0f05e7f3ed2e3bec545e6b016fe202eff99
