@@ -68,41 +68,24 @@ const skinBtn = document.getElementById("skinBtn");
 
 const WORLD_RADIUS = 3000;
 const WORLD_CENTER = { x: 3000, y: 3000 };
-<<<<<<< HEAD
-
 // 皮膚系統變數
 const skins = ["#2ecc71", "#e74c3c", "#f1c40f", "#9b59b6", "#e67e22", "#1abc9c", "#ff9ff3", "#00d2d3", "#ecf0f1"];
 let currentSkinIdx = 0;
 let myColor = skins[currentSkinIdx];
-=======
->>>>>>> 59d9ea5ed561b5775d7efbc092b765980c3f266f
-
 let snake = [];
 let foods = {}; 
 let score = 0;
-<<<<<<< HEAD
 let snakeSpeed = 3; 
 let myWidth = 15; 
 let pendingGrowth = 0; 
 let pendingShrink = 0; // 新增：用來累計要扣除的長度
-=======
-let snakeSpeed = 3; // 固定速度
-let myWidth = 15; // 自己的粗度
-let pendingGrowth = 0; // 吃到食物後準備增加的長度
->>>>>>> 59d9ea5ed561b5775d7efbc092b765980c3f266f
-
 let gameState = "MENU";
 let mouse = { x: 400, y: 300 };
 let isBoosting = false;
-
 let targetEnemies = {};
 let enemies = {};
-<<<<<<< HEAD
 let enemyWidths = {}; 
 let enemyColors = {}; // 紀錄敵人的顏色
-=======
-let enemyWidths = {}; // 紀錄敵人的粗度
->>>>>>> 59d9ea5ed561b5775d7efbc092b765980c3f266f
 
 function resizeCanvas() {
     canvas.width = window.innerWidth;
@@ -125,24 +108,14 @@ socket.on('foodEaten', (data) => {
     delete foods[data.eatenId]; 
     foods[data.newFood.id] = data.newFood; 
 });
-<<<<<<< HEAD
 socket.on('foodsDropped', (droppedFoods) => {
     Object.assign(foods, droppedFoods); 
-=======
-// 接收別人死掉噴出的食物
-socket.on('foodsDropped', (droppedFoods) => {
-    Object.assign(foods, droppedFoods); // 將新食物合併到畫面上
->>>>>>> 59d9ea5ed561b5775d7efbc092b765980c3f266f
 });
 
 socket.on('enemyUpdate', (data) => {
     targetEnemies[data.id] = data.snake;
-<<<<<<< HEAD
     enemyWidths[data.id] = data.width; 
     enemyColors[data.id] = data.color; // 接收敵人的顏色
-=======
-    enemyWidths[data.id] = data.width; // 獲取別人現在的粗度
->>>>>>> 59d9ea5ed561b5775d7efbc092b765980c3f266f
 });
 
 socket.on('die', () => gameOver());
@@ -150,7 +123,6 @@ socket.on('die', () => gameOver());
 socket.on('scoreUpdate', (data) => {
     if (data.id === socket.id) {
         let scoreDiff = data.score - score;
-<<<<<<< HEAD
         
         // 判斷是得分還是扣分
         if (scoreDiff > 0) {
@@ -162,13 +134,6 @@ socket.on('scoreUpdate', (data) => {
         score = data.score;
         myWidth = data.width; 
         scoreBoard.innerText = `分數: ${score}`;
-=======
-        if (scoreDiff > 0) pendingGrowth += Math.floor(scoreDiff / 3); // 每得3分長1節
-        
-        score = data.score;
-        myWidth = data.width; // 更新粗度
-        scoreBoard.innerText = `分數: ${score} | 粗度: ${Math.floor(myWidth)}`;
->>>>>>> 59d9ea5ed561b5775d7efbc092b765980c3f266f
     }
 });
 
@@ -176,10 +141,7 @@ socket.on('playerDisconnected', (id) => {
     delete targetEnemies[id];
     delete enemies[id];
     delete enemyWidths[id];
-<<<<<<< HEAD
     delete enemyColors[id];
-=======
->>>>>>> 59d9ea5ed561b5775d7efbc092b765980c3f266f
 });
 
 // --- 控制邏輯 ---
@@ -196,7 +158,6 @@ canvas.addEventListener("mousemove", (e) => {
 // 初始化/重生邏輯
 function init() {
     snake = [];
-<<<<<<< HEAD
     const startX = WORLD_CENTER.x + ((Math.random() * 2 - 1) * 2000);
     const startY = WORLD_CENTER.y + ((Math.random() * 2 - 1) * 2000);
     for(let i=0; i<20; i++) snake.push({ x: startX, y: startY }); 
@@ -206,16 +167,6 @@ function init() {
     pendingGrowth = 0; 
     pendingShrink = 0;
     scoreBoard.innerText = `分數: ${score}`;
-=======
-    const startX = WORLD_CENTER.x + (Math.random() * 400 - 200);
-    const startY = WORLD_CENTER.y + (Math.random() * 400 - 200);
-    for(let i=0; i<20; i++) snake.push({ x: startX, y: startY }); // 初始化長度為20
-    
-    score = 0;
-    myWidth = 15; // 初始化寬度
-    pendingGrowth = 0; // 重置增長
-    scoreBoard.innerText = `分數: ${score} | 粗度: 15`;
->>>>>>> 59d9ea5ed561b5775d7efbc092b765980c3f266f
     gameState = "PLAYING";
     ui.classList.add("hidden"); 
 }
@@ -239,20 +190,9 @@ function update() {
     
     // 長度增長控制
     if (pendingGrowth > 0) {
-<<<<<<< HEAD
         pendingGrowth--; // 不移除尾巴，蛇變長
     } else {
         snake.pop(); // 正常移動，移除尾巴
-=======
-        pendingGrowth--; // 消耗點數，不移除尾巴 (也就是變長了)
-    } else {
-        snake.pop(); // 沒吃東西時維持長度
-        
-        // 加速會消耗長度
-        if (isBoosting && snake.length > 20) {
-            snake.pop(); 
-        }
->>>>>>> 59d9ea5ed561b5775d7efbc092b765980c3f266f
     }
 
     // 處理加速扣分導致的縮短：每累計 3 分就縮短 1 節
@@ -292,16 +232,9 @@ function drawMinimap() {
 
     const scale = size / (WORLD_RADIUS * 2);
 
-<<<<<<< HEAD
     ctx.fillStyle = myColor; // 小地圖顯示自己的顏色
     if(snake[0]) ctx.fillRect(mapX + snake[0].x * scale, mapY + snake[0].y * scale, 4, 4);
     
-=======
-    ctx.fillStyle = "#2ecc71";
-    if(snake[0]) ctx.fillRect(mapX + snake[0].x * scale, mapY + snake[0].y * scale, 4, 4);
-    
-    ctx.fillStyle = "gray";
->>>>>>> 59d9ea5ed561b5775d7efbc092b765980c3f266f
     for(let id in targetEnemies) {
         let e = targetEnemies[id];
         ctx.fillStyle = enemyColors[id] || "gray"; // 小地圖顯示敵人顏色
@@ -344,11 +277,7 @@ function draw() {
         }
         ctx.shadowBlur = 0; 
 
-<<<<<<< HEAD
         // 畫敵人的蛇 (套用他們的顏色與寬度)
-=======
-        // 畫敵人的蛇 (套用他們各自的寬度)
->>>>>>> 59d9ea5ed561b5775d7efbc092b765980c3f266f
         for (let id in targetEnemies) {
             if (!enemies[id]) enemies[id] = JSON.parse(JSON.stringify(targetEnemies[id]));
             for (let i = 0; i < targetEnemies[id].length; i++) {
@@ -356,20 +285,14 @@ function draw() {
                 enemies[id][i].x += (targetEnemies[id][i].x - enemies[id][i].x) * 0.15;
                 enemies[id][i].y += (targetEnemies[id][i].y - enemies[id][i].y) * 0.15;
             }
-<<<<<<< HEAD
             ctx.strokeStyle = enemyColors[id] || "#95a5a6"; // 使用紀錄的顏色
             ctx.lineWidth = enemyWidths[id] || 15; 
-=======
-            ctx.strokeStyle = "#95a5a6"; 
-            ctx.lineWidth = enemyWidths[id] || 15; // 讀取敵人的粗度
->>>>>>> 59d9ea5ed561b5775d7efbc092b765980c3f266f
             ctx.lineCap = "round"; ctx.lineJoin = "round";
             ctx.beginPath();
             ctx.moveTo(enemies[id][0].x, enemies[id][0].y);
             enemies[id].forEach(seg => ctx.lineTo(seg.x, seg.y)); ctx.stroke();
         }
 
-<<<<<<< HEAD
         // 畫自己的蛇
         ctx.strokeStyle = myColor; // 使用你選擇的皮膚顏色
         // 如果正在加速，蛇會散發出光暈效果
@@ -379,11 +302,6 @@ function draw() {
         }
 
         ctx.lineWidth = myWidth; 
-=======
-        // 畫自己的蛇 (套用自己的寬度)
-        ctx.strokeStyle = (isBoosting && snake.length > 20) ? "#3498db" : "#2ecc71";
-        ctx.lineWidth = myWidth; // 套用動態變粗
->>>>>>> 59d9ea5ed561b5775d7efbc092b765980c3f266f
         ctx.lineCap = "round"; ctx.lineJoin = "round";
         ctx.beginPath();
         if(snake[0]) {
