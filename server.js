@@ -112,7 +112,7 @@ io.on('connection', (socket) => {
             }
         }
 
-        // 2. 邊界死亡判定
+        // 2. 邊界死亡判定!!!!!
         let distToCenter = Math.sqrt(Math.pow(head.x - WORLD_CENTER.x, 2) + Math.pow(head.y - WORLD_CENTER.y, 2));
         if (distToCenter > WORLD_RADIUS) {
             handlePlayerDeath(socket.id);
