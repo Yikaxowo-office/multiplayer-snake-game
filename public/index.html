@@ -38,6 +38,31 @@
         #skinBtn:active { transform: scale(0.95); }
 
         @keyframes blinker { 50% { opacity: 0; } }
+        /* 切換模式按鈕樣式 */
+        .switch-btn {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 24px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            background: #e67e22; /* 橘色醒目背景 */
+            color: white;
+            text-decoration: none;
+            border: 2px solid white;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            transition: transform 0.2s, background 0.2s;
+            z-index: 100;
+        }
+        .switch-btn:hover {
+            background: #d35400;
+            transform: scale(1.05);
+        }
+        .switch-btn:active {
+            transform: scale(0.95);
+        }
     </style>
 </head>
 <body>
@@ -52,6 +77,8 @@
         <p class="blink">點擊畫面任意處開始戰鬥</p>
         
         <button id="skinBtn">更換皮膚</button>
+        
+        <a href="/index2.html" class="switch-btn" id="toOfflineBtn">前往離線練習區 ➔</a>
     </div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -101,7 +128,10 @@ skinBtn.addEventListener("mousedown", (e) => {
     myColor = skins[currentSkinIdx];
     skinBtn.style.background = myColor;
 });
-
+// --- 阻止點擊跳轉按鈕時觸發遊戲開始 ---
+document.getElementById("toOfflineBtn").addEventListener("mousedown", (e) => {
+    e.stopPropagation();
+});
 // --- 監聽事件 ---
 socket.on('initFoods', (serverFoods) => foods = serverFoods);
 socket.on('foodEaten', (data) => {
